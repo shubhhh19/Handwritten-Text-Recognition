@@ -1,0 +1,1 @@
+Commit 2: Implement core OCR functionality
