@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: handwritten-ocr
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.9.0
+    disk:
+      name: data
+      mountPath: /app/static/uploads
+      sizeGB: 1

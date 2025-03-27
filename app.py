@@ -1,3 +1,13 @@
+'''
+    Filename: app.py
+    Author: Bhuwan Shrestha, Alen Varghese, Shubh Soni, and Dev Patel
+    Date: 2025-04-01
+    Project: Handwritten OCR | Capstone Project 2025
+    Course: Systems Project
+    Description: This is the main application file for the Handwritten OCR project.
+'''
+
+
 from flask import Flask, request, render_template, redirect, url_for, send_file, jsonify, session, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.utils import secure_filename
@@ -18,15 +28,35 @@ from docx import Document
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from oauthlib.oauth2 import WebApplicationClient
+from whitenoise import WhiteNoise
+
+# Get base directory for the app
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # Change this to a secure key
+# Add whitenoise for serving static files in production
+app.wsgi_app = WhiteNoise(app.wsgi_app, root='static/')
+app.wsgi_app.add_files('static/', prefix='static/')
+
+# Use environment variables for production, fall back to defaults for development
+app.secret_key = os.environ.get("SECRET_KEY", "your_secret_key")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["LOGS_FOLDER"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_logs")
+app.config["LOGS_FOLDER"] = os.path.join(BASE_DIR, "user_logs")
+app.config["DATABASE"] = os.path.join(BASE_DIR, "users.db")
 
 # Create logs directory if it doesn't exist
 if not os.path.exists(app.config["LOGS_FOLDER"]):
     os.makedirs(app.config["LOGS_FOLDER"])
+
+# Create uploads directory if it doesn't exist
+if not os.path.exists(app.config["UPLOAD_FOLDER"]):
+    os.makedirs(app.config["UPLOAD_FOLDER"])
+
+# Function to get database connection
+def get_db_connection():
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    return conn
 
 # Function to log user activities
 def log_user_activity(user_id, activity, details=None):
@@ -49,9 +79,14 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message = ""
 
-# Google OAuth setup (placeholder)
-GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID"  # Replace with your Google Client ID
+# Google OAuth setup (use environment variables for production)
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID")  
 client = WebApplicationClient(GOOGLE_CLIENT_ID)
+
+# Email configuration from environment variables
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER", "handwrittensender@gmail.com")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "ymribhdrhrbsymls")
+EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT", "handwrittenocr448@gmail.com")
 
 class User(UserMixin):
     def __init__(self, id):
@@ -73,7 +108,7 @@ def upload_file():
 
         files = request.files.getlist("files")
         results = []
-        conn = sqlite3.connect("users.db")
+        conn = get_db_connection()
         c = conn.cursor()
         for file in files:
             if file and allowed_file(file.filename):
@@ -231,7 +266,7 @@ def login():
     if request.method == "POST":
         username_or_email = request.form["username"]
         password = request.form["password"]
-        conn = sqlite3.connect("users.db")
+        conn = get_db_connection()
         c = conn.cursor()
         
         # Check if the input matches either username or email
@@ -255,7 +290,7 @@ def login():
             user_agent = request.user_agent.string
             
             # Create session record in database
-            conn = sqlite3.connect("users.db")
+            conn = get_db_connection()
             c = conn.cursor()
             
             # Create table if not exists
@@ -283,7 +318,7 @@ def signup():
         username = request.form["username"]
         password = request.form["password"]
         gmail = request.form["gmail"]
-        conn = sqlite3.connect("users.db")
+        conn = get_db_connection()
         c = conn.cursor()
         c.execute("INSERT INTO users (username, password, gmail) VALUES (?, ?, ?)",
                   (username, password, gmail))
@@ -308,7 +343,7 @@ def logout():
     # Remove session record from database
     session_id = session.get('_id')
     if session_id:
-        conn = sqlite3.connect("users.db")
+        conn = get_db_connection()
         c = conn.cursor()
         
         # Delete this session
@@ -327,13 +362,75 @@ def history():
     # Log this activity
     log_user_activity(current_user.id, "Viewed History")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT image, text, timestamp FROM history WHERE user_id=? ORDER BY timestamp DESC",
               (current_user.id,))
     records = c.fetchall()
     conn.close()
     return render_template("history.html", records=records)
+
+@app.route("/clear_history", methods=["POST"])
+@login_required
+def clear_history():
+    # Log this activity
+    log_user_activity(current_user.id, "Cleared History")
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM history WHERE user_id=?", (current_user.id,))
+    conn.commit()
+    conn.close()
+    
+    return redirect(url_for("history"))
+
+@app.route("/search_history", methods=["GET"])
+@login_required
+def search_history():
+    # Get search query
+    query = request.args.get("query", "")
+    
+    # Log this activity
+    log_user_activity(current_user.id, "Searched History", f"Query: {query}")
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Search in text and timestamp using LIKE
+    c.execute("""
+        SELECT image, text, timestamp FROM history 
+        WHERE user_id=? AND (text LIKE ? OR timestamp LIKE ?) 
+        ORDER BY timestamp DESC
+    """, (current_user.id, f"%{query}%", f"%{query}%"))
+    
+    records = c.fetchall()
+    conn.close()
+    
+    return render_template("history.html", records=records)
+
+@app.route("/download_history", methods=["POST"])
+@login_required
+def download_history():
+    # Get form data
+    filename = request.form.get("filename", "unknown")
+    text = request.form.get("text", "")
+    
+    # Create a text file to download
+    text_content = text.replace('<br>', '\n').replace('</p><p>', '\n').replace('<p>', '').replace('</p>', '\n')
+    
+    # Log this activity
+    log_user_activity(current_user.id, "Downloaded History Record", f"Text from image: {filename}")
+    
+    # Create file in memory
+    file_io = io.BytesIO(text_content.encode('utf-8'))
+    file_io.seek(0)
+    
+    return send_file(
+        file_io,
+        mimetype='text/plain',
+        as_attachment=True,
+        download_name=f"history_{filename}.txt"
+    )
 
 @app.route("/update_profile", methods=["POST"])
 @login_required
@@ -342,7 +439,7 @@ def update_profile():
     email = request.form.get("email")
     password = request.form.get("password")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Log what's being changed
@@ -394,7 +491,7 @@ def toggle_2fa():
     # Log this activity
     log_user_activity(current_user.id, "2FA Setting Changed", f"Enabled: {enabled}")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Check if we need to create a 2fa table
@@ -428,7 +525,7 @@ def toggle_analytics():
     # Log this activity
     log_user_activity(current_user.id, "Analytics Setting Changed", f"Enabled: {enabled}")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Check if we need to create the table
@@ -461,7 +558,7 @@ def toggle_notifications():
     # Log this activity
     log_user_activity(current_user.id, "Notifications Setting Changed", f"Enabled: {enabled}")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Check if we need to create the table
@@ -494,7 +591,7 @@ def update_language():
     # Log this activity
     log_user_activity(current_user.id, "Language Setting Changed", f"Language: {language}")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Check if we need to create the table
@@ -525,7 +622,7 @@ def get_active_sessions():
     # Log this activity
     log_user_activity(current_user.id, "Viewed Active Sessions")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Create sessions table if not exists
@@ -558,7 +655,7 @@ def terminate_session(session_id):
     # Log this activity
     log_user_activity(current_user.id, "Terminated Session", f"Session ID: {session_id}")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Verify this session belongs to the current user before deleting
@@ -582,7 +679,7 @@ def settings():
     # Log this activity
     log_user_activity(current_user.id, "Viewed Settings Page")
     
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     
     # Get user info
@@ -722,7 +819,7 @@ def submit_rating():
     email_sent = False
     
     # Get user information
-    conn = sqlite3.connect("users.db")
+    conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT username, gmail FROM users WHERE id=?", (current_user.id,))
     user = c.fetchone()
@@ -797,5 +894,73 @@ Additional Comment:
         "message": "Thank you for your rating!" if success else error_message
     })
 
+# Initialize database tables if they don't exist
+def init_db():
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Create users table if not exists
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        gmail TEXT UNIQUE NOT NULL
+    )
+    ''')
+    
+    # Create history table if not exists
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        image TEXT NOT NULL,
+        text TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # Create user_sessions table if not exists
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        ip_address TEXT,
+        device_info TEXT,
+        last_active DATETIME
+    )
+    ''')
+    
+    # Create user_preferences table if not exists
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS user_preferences (
+        user_id INTEGER PRIMARY KEY,
+        analytics INTEGER DEFAULT 0,
+        notifications INTEGER DEFAULT 0,
+        language TEXT DEFAULT 'en'
+    )
+    ''')
+    
+    # Create user_2fa table if not exists
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS user_2fa (
+        user_id INTEGER PRIMARY KEY,
+        enabled INTEGER DEFAULT 0,
+        secret TEXT
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    
+    print("Database initialized successfully")
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Initialize database
+    init_db()
+    
+    # Get port from environment variable or default to 8080
+    port = int(os.environ.get("PORT", 8080))
+    # Use host 0.0.0.0 to make the app accessible outside the container
+    app.run(host="0.0.0.0", port=port, debug=False)
