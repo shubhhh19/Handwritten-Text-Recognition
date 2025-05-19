@@ -2,7 +2,6 @@
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/status-active-brightgreen" alt="Status" />
 <img src="https://img.shields.io/badge/license-MIT-blue" alt="License" />
 <img src="https://img.shields.io/badge/version-1.0-orange" alt="Version" />
 
@@ -48,7 +47,7 @@ _A powerful web application that converts handwritten text to digital format usi
 - Flask
 - SQLite
 - Google Cloud Vision API
-- LibreTranslate API
+- Google Translate API
 
 ### Frontend
 - HTML5
@@ -89,9 +88,12 @@ python init_db.py
 ## 📸 Screenshots
 
 <div align="center">
-<img src="static/screenshots/home.png" alt="Home Page" width="600"/>
-<img src="static/screenshots/upload.png" alt="Upload Interface" width="600"/>
-<img src="static/screenshots/result.png" alt="Result Page" width="600"/>
+<img src="https://github.com/user-attachments/assets/05e8b69b-c40f-4d2f-b5cc-58c4faa6e2ba" alt="Home Page" width="1000"/>
+<img src="https://github.com/user-attachments/assets/1216e9f4-3975-4d60-a2bf-e1631e0adc67" alt="Home Page" width="1000"/>
+<img src="https://github.com/user-attachments/assets/680cf3fa-4efe-47f6-b43d-507d247453ab" alt="Home Page" width="1000"/>
+<img src="https://github.com/user-attachments/assets/aa07517b-90c8-4afd-8ef4-49eb3d250953" alt="Home Page" width="1000"/>
+<img src="https://github.com/user-attachments/assets/6e4a31c8-a745-4cc2-acc5-6cb998720cca" alt="Home Page" width="1000"/>
+
 </div>
 
 ## 🏗️ Interesting Parts During Build
